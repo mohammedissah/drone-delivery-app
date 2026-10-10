@@ -3,20 +3,43 @@ import L from 'leaflet';
 import { Layers, Globe, Map as MapIcon, Crosshair } from 'lucide-react';
 import { SKYPORT_COORDINATES, NO_FLY_ZONES } from '../utils/droneSimulator';
 
-const TILE_LAYERS = {
-  dark: {
-    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-    name: 'Tactical Radar'
-  },
-  satellite: {
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    name: 'Satellite Aerial'
-  },
-  streets: {
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    name: 'Street Map'
+function createTileLayer(type) {
+  if (type === 'dark') {
+    const base = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        maxNativeZoom: 16,
+        attribution: 'Esri Dark Canvas'
+      }
+    );
+    const labels = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        maxNativeZoom: 16
+      }
+    );
+    return L.layerGroup([base, labels]);
   }
-};
+
+  if (type === 'satellite') {
+    return L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {
+        maxZoom: 19,
+        attribution: 'Esri World Imagery'
+      }
+    );
+  }
+
+  // streets
+  return L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    subdomains: 'abc',
+    attribution: '&copy; OpenStreetMap'
+  });
+}
 
 export default function FlightRadarMap({
   activeDrone,
@@ -48,11 +71,8 @@ export default function FlightRadarMap({
         attributionControl: false
       });
 
-      // Base Tile Layer
-      const baseLayer = L.tileLayer(TILE_LAYERS[currentLayer].url, {
-        maxZoom: 19,
-        subdomains: 'abcd'
-      }).addTo(map);
+      // Base Tile Layer (No API Key required, no watermarks)
+      const baseLayer = createTileLayer(currentLayer).addTo(map);
       tileLayerRef.current = baseLayer;
 
       // Add Zoom control at bottom right
@@ -137,10 +157,7 @@ export default function FlightRadarMap({
       map.removeLayer(tileLayerRef.current);
     }
 
-    tileLayerRef.current = L.tileLayer(TILE_LAYERS[type].url, {
-      maxZoom: 19,
-      subdomains: 'abcd'
-    }).addTo(map);
+    tileLayerRef.current = createTileLayer(type).addTo(map);
   };
 
   // Update Flight Path Polyline
