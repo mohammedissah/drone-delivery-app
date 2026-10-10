@@ -2,6 +2,12 @@ import express from 'express';
 import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
+import dotenv from 'dotenv';
+import { connectDB, isDbConnected } from './config/db.js';
+import { Order } from './models/Order.js';
+import { FlightLog } from './models/FlightLog.js';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -9,7 +15,10 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// In-Memory Database & State
+// Connect to MongoDB
+connectDB();
+
+// In-Memory Database & State (Syncs with MongoDB)
 const SKYPORT_COORDINATES = {
   name: "SkyPort Hub Alpha (Central Depot)",
   lat: 37.7749,
@@ -110,13 +119,22 @@ let drones = [
 let flightLogs = [
   { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'Backend MAVLink & Telemetry Gateway online on Port 3001', type: 'info' },
   { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'WebSocket server broadcast channel active', type: 'info' },
-  { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'Automated UTM Geofence engine online', type: 'success' }
+  { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'MongoDB connection manager initialized', type: 'success' }
 ];
 
-function addLog(text, type = 'info') {
+async function addLog(text, type = 'info', droneId = null) {
   const timestamp = new Date().toISOString().slice(11, 19) + ' UTC';
   flightLogs.unshift({ timestamp, text, type });
   if (flightLogs.length > 50) flightLogs.pop();
+
+  // Persist to MongoDB
+  if (isDbConnected()) {
+    try {
+      await FlightLog.create({ timestamp, text, type, droneId });
+    } catch {
+      // Ignore background log error
+    }
+  }
 }
 
 function calculateBearing(lat1, lon1, lat2, lon2) {
@@ -158,17 +176,17 @@ function broadcast(data) {
 
 wss.on('connection', (ws) => {
   console.log('[WebSocket] Client connected (Mission Control or Customer Tracker)');
-  // Send immediate initial snapshot
   ws.send(JSON.stringify({
     type: 'INIT_STATE',
     drones,
     flightLogs,
     noFlyZones: NO_FLY_ZONES,
-    skyport: SKYPORT_COORDINATES
+    skyport: SKYPORT_COORDINATES,
+    mongoConnected: isDbConnected()
   }));
 });
 
-// Authoritative Backend Simulation Loop (runs at 300ms)
+// Authoritative Backend Simulation Loop
 setInterval(() => {
   let hasStateChanged = false;
 
@@ -188,7 +206,7 @@ setInterval(() => {
           updated.altitudeMeters = updated.targetAltitude;
           updated.phase = 'EN_ROUTE';
           updated.pitchDeg = 1.0;
-          addLog(`${drone.callsign} reached cruising altitude 65m. Transiting flight corridor.`, 'success');
+          addLog(`${drone.callsign} reached cruising altitude 65m. Transiting flight corridor.`, 'success', drone.id);
         }
         break;
       }
@@ -221,7 +239,7 @@ setInterval(() => {
           updated.pitchDeg = 0;
           updated.rollDeg = 0;
           updated.progress = 85;
-          addLog(`${drone.callsign} arrived over drop zone (${dest.address}). Hovering at 25m.`, 'success');
+          addLog(`${drone.callsign} arrived over drop zone (${dest.address}). Hovering at 25m.`, 'success', drone.id);
         }
         break;
       }
@@ -243,7 +261,7 @@ setInterval(() => {
           updated.tetherLengthM = 22;
           updated.phase = 'PACKAGE_RELEASED';
           updated.progress = 96;
-          addLog(`Ground sensors detected touchdown! Smart-latch released payload safely.`, 'success');
+          addLog(`Ground sensors detected touchdown! Smart-latch released payload safely.`, 'success', drone.id);
 
           setTimeout(() => {
             const d = drones.find(item => item.id === drone.id);
@@ -262,7 +280,7 @@ setInterval(() => {
         } else {
           updated.tetherLengthM = 0;
           updated.phase = 'RETURN_TO_HOME';
-          addLog(`Tether retracted to belly. Auto Return-to-Home trajectory active.`, 'info');
+          addLog(`Tether retracted to belly. Auto Return-to-Home trajectory active.`, 'info', drone.id);
         }
         break;
       }
@@ -295,7 +313,15 @@ setInterval(() => {
             updated.speedKmh = 0;
             updated.phase = 'DELIVERED';
             updated.progress = 100;
-            addLog(`${drone.callsign} touchdown on SkyPort Launch Pad Alpha.`, 'success');
+            addLog(`${drone.callsign} touchdown on SkyPort Launch Pad Alpha.`, 'success', drone.id);
+
+            // Update order status in MongoDB
+            if (drone.order && isDbConnected()) {
+              Order.findOneAndUpdate(
+                { orderId: drone.order.orderId },
+                { status: 'DELIVERED', deliveredAt: new Date() }
+              ).catch(() => {});
+            }
           }
         }
         break;
@@ -312,7 +338,8 @@ setInterval(() => {
     broadcast({
       type: 'TELEMETRY_UPDATE',
       drones,
-      flightLogs
+      flightLogs,
+      mongoConnected: isDbConnected()
     });
   }
 }, 300);
@@ -321,31 +348,34 @@ setInterval(() => {
 
 // 1. Health & Status
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'AeroDrop Fleet Telemetry Engine', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    service: 'AeroDrop Fleet Telemetry Engine',
+    database: isDbConnected() ? 'MongoDB Connected' : 'In-Memory Fallback',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // 2. Get Fleet Telemetry
 app.get('/api/fleet', (req, res) => {
-  res.json({ drones, flightLogs, skyport: SKYPORT_COORDINATES });
+  res.json({ drones, flightLogs, skyport: SKYPORT_COORDINATES, mongoConnected: isDbConnected() });
 });
 
-// 3. E-Commerce Order Webhook Endpoint
-app.post('/api/webhooks/orders', (req, res) => {
+// 3. E-Commerce Order Webhook Endpoint (Persists to MongoDB)
+app.post('/api/webhooks/orders', async (req, res) => {
   const { orderId, recipient, address, item, weightKg, lat, lng, dropZoneType } = req.body;
 
   if (!orderId || !item || !lat || !lng) {
     return res.status(400).json({ error: 'Missing mandatory order fields (orderId, item, lat, lng)' });
   }
 
-  // Weight validation
   if (weightKg > 2.5) {
     return res.status(400).json({ error: `Payload mass (${weightKg}kg) exceeds drone payload limit of 2.5kg` });
   }
 
-  // Find available drone or use Falcon-One
   const drone = drones.find(d => d.phase === 'IDLE' || d.phase === 'DELIVERED') || drones[0];
 
-  drone.order = {
+  const orderPayload = {
     orderId,
     recipient: recipient || 'Valued Customer',
     address: address || 'Destination Drop Zone',
@@ -353,9 +383,12 @@ app.post('/api/webhooks/orders', (req, res) => {
     weightKg: weightKg || 1.0,
     lat: parseFloat(lat),
     lng: parseFloat(lng),
-    dropZoneType: dropZoneType || 'Backyard Lawn'
+    dropZoneType: dropZoneType || 'Backyard Lawn',
+    status: 'AIRBORNE',
+    assignedDrone: drone.id
   };
 
+  drone.order = orderPayload;
   drone.phase = 'TAKEOFF';
   drone.progress = 5;
   drone.lat = SKYPORT_COORDINATES.lat;
@@ -363,14 +396,29 @@ app.post('/api/webhooks/orders', (req, res) => {
   drone.altitudeMeters = 0;
   drone.speedKmh = 0;
 
-  addLog(`E-Commerce Webhook: Order ${orderId} assigned to ${drone.callsign}. Payload: ${item} (${weightKg} kg). Takeoff initiated.`, 'success');
+  // Save to MongoDB if connected
+  if (isDbConnected()) {
+    try {
+      await Order.findOneAndUpdate(
+        { orderId },
+        orderPayload,
+        { upsert: true, new: true }
+      );
+      console.log(`🍃 Order ${orderId} saved to MongoDB collection 'orders'`);
+    } catch (err) {
+      console.warn('MongoDB save warning:', err.message);
+    }
+  }
+
+  addLog(`E-Commerce Webhook: Order ${orderId} assigned to ${drone.callsign}. Payload: ${item} (${weightKg} kg). Takeoff initiated.`, 'success', drone.id);
 
   broadcast({
     type: 'ORDER_DISPATCHED',
     droneId: drone.id,
     order: drone.order,
     drones,
-    flightLogs
+    flightLogs,
+    mongoConnected: isDbConnected()
   });
 
   res.status(201).json({
@@ -378,11 +426,12 @@ app.post('/api/webhooks/orders', (req, res) => {
     assignedDrone: drone.id,
     callsign: drone.callsign,
     orderId,
-    estimatedFlightMinutes: 4.2
+    estimatedFlightMinutes: 4.2,
+    database: isDbConnected() ? 'MongoDB Persisted' : 'Memory'
   });
 });
 
-// 4. Mission Flight Commands (Launch, Hold, RTH, Abort, Authorize Drop, Reset)
+// 4. Mission Flight Commands
 app.post('/api/missions/launch', (req, res) => {
   const { droneId = 'AERO-X1' } = req.body;
   const drone = drones.find(d => d.id === droneId);
@@ -390,7 +439,7 @@ app.post('/api/missions/launch', (req, res) => {
 
   drone.phase = 'TAKEOFF';
   drone.progress = 5;
-  addLog(`Operator launched ${drone.callsign}. Ascending to flight corridor.`, 'info');
+  addLog(`Operator launched ${drone.callsign}. Ascending to flight corridor.`, 'info', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
 });
@@ -402,7 +451,7 @@ app.post('/api/missions/hold', (req, res) => {
 
   drone.phase = 'HOLD';
   drone.speedKmh = 0;
-  addLog(`Operator commanded ${drone.callsign} to HOVER HOLD.`, 'alert');
+  addLog(`Operator commanded ${drone.callsign} to HOVER HOLD.`, 'alert', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
 });
@@ -414,7 +463,7 @@ app.post('/api/missions/rth', (req, res) => {
 
   drone.phase = 'RETURN_TO_HOME';
   drone.tetherLengthM = 0;
-  addLog(`RTH command issued. ${drone.callsign} returning to SkyPort.`, 'alert');
+  addLog(`RTH command issued. ${drone.callsign} returning to SkyPort.`, 'alert', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
 });
@@ -426,7 +475,7 @@ app.post('/api/missions/abort', (req, res) => {
 
   drone.phase = 'ABORT';
   drone.speedKmh = 0;
-  addLog(`EMERGENCY ABORT COMMANDED for ${drone.callsign}. Parachute deploy signal sent.`, 'alert');
+  addLog(`EMERGENCY ABORT COMMANDED for ${drone.callsign}. Parachute deploy signal sent.`, 'alert', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
 });
@@ -437,7 +486,7 @@ app.post('/api/missions/authorize-drop', (req, res) => {
   if (!drone) return res.status(404).json({ error: 'Drone not found' });
 
   drone.phase = 'WINCH_DROP';
-  addLog(`Recipient confirmed drop clearance! Winch tether unspooling...`, 'success');
+  addLog(`Recipient confirmed drop clearance! Winch tether unspooling...`, 'success', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
 });
@@ -455,9 +504,50 @@ app.post('/api/missions/reset', (req, res) => {
   drone.battery = 98;
   drone.progress = 0;
   drone.tetherLengthM = 0;
-  addLog(`${drone.callsign} reset to SkyPort Launch Pad Alpha.`, 'info');
+  addLog(`${drone.callsign} reset to SkyPort Launch Pad Alpha.`, 'info', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
+});
+
+// 5. MongoDB Query Endpoints
+app.get('/api/db/status', async (req, res) => {
+  try {
+    const connected = isDbConnected();
+    const orderCount = connected ? await Order.countDocuments() : 0;
+    const logCount = connected ? await FlightLog.countDocuments() : 0;
+    res.json({
+      connected,
+      database: 'aerodrop',
+      host: '127.0.0.1:27017',
+      counts: { orders: orderCount, flightLogs: logCount }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/db/orders', async (req, res) => {
+  try {
+    if (!isDbConnected()) {
+      return res.json({ source: 'in-memory', orders: drones.map(d => d.order).filter(Boolean) });
+    }
+    const orders = await Order.find().sort({ createdAt: -1 }).limit(50);
+    res.json({ source: 'mongodb', count: orders.length, orders });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/db/logs', async (req, res) => {
+  try {
+    if (!isDbConnected()) {
+      return res.json({ source: 'in-memory', logs: flightLogs });
+    }
+    const logs = await FlightLog.find().sort({ createdAt: -1 }).limit(100);
+    res.json({ source: 'mongodb', count: logs.length, logs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Start Server

@@ -19,6 +19,7 @@ export default function App() {
   const [drones, setDrones] = useState(INITIAL_DRONES);
   const [activeDroneId, setActiveDroneId] = useState('AERO-X1');
   const [backendConnected, setBackendConnected] = useState(false);
+  const [mongoConnected, setMongoConnected] = useState(false);
   const [flightLogs, setFlightLogs] = useState([
     { timestamp: '05:58:12 UTC', text: 'MAVLink telemetry link online via 5G satellite', type: 'info' },
     { timestamp: '05:58:18 UTC', text: 'RTK centimeter positioning fix locked (22 satellites)', type: 'info' },
@@ -38,6 +39,9 @@ export default function App() {
           }
           if (message.flightLogs) {
             setFlightLogs(message.flightLogs);
+          }
+          if (typeof message.mongoConnected === 'boolean') {
+            setMongoConnected(message.mongoConnected);
           }
         }
       },
@@ -323,11 +327,11 @@ export default function App() {
           }}></span>
           <span>
             {backendConnected
-              ? 'BACKEND LIVE: Node.js + Express + WebSockets (Port 3001 Connected)'
+              ? `BACKEND LIVE: Node.js + Express + WebSockets (Port 3001) | ${mongoConnected ? '🍃 MongoDB Database Connected' : '⚠️ MongoDB In-Memory Fallback'}`
               : 'BACKEND OFFLINE: Running Client-Side Fallback Simulator (Start server with: npm run dev)'}
           </span>
         </div>
-        <span>REST API: http://localhost:3001/api</span>
+        <span>DB: {mongoConnected ? 'mongodb://127.0.0.1:27017' : 'In-Memory'} · API: :3001</span>
       </div>
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
