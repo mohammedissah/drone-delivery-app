@@ -97,16 +97,16 @@ export default function FlightRadarMap({
             box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
             white-space: nowrap;
           ">
-            <span>🏭</span> SKYPORT ALPHA
+            <span>🏭</span> SKYPORT ACCRA (GH)
           </div>
         `,
-        iconSize: [120, 28],
-        iconAnchor: [60, 14]
+        iconSize: [140, 28],
+        iconAnchor: [70, 14]
       });
 
       L.marker([SKYPORT_COORDINATES.lat, SKYPORT_COORDINATES.lng], { icon: skyportIcon })
         .addTo(map)
-        .bindPopup(`<b>SkyPort Central Hub</b><br>Depot Elevation: 12m<br>Automated Launch Pad #1`);
+        .bindPopup(`<b>AeroDrop SkyPort Hub Accra</b><br>Kotoka UTM Corridor, Ghana<br>Automated Induction Pads #1, #2, #3`);
 
       // Draw No-Fly Restricted Airspace Zones
       NO_FLY_ZONES.forEach(nfz => {

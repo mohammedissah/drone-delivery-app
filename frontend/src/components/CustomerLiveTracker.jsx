@@ -17,12 +17,12 @@ export default function CustomerLiveTracker({ drone, onAuthorizeDrop, onResetMis
   });
 
   const target = drone.order || {
-    lat: 37.7865,
-    lng: -122.4055,
-    address: '742 Evergreen Terr, Sector 4',
-    recipient: 'Elena Rostova',
-    orderId: 'ORD-9482-EXP',
-    item: 'Emergency Medical Kit',
+    lat: 5.6360,
+    lng: -0.1550,
+    address: '14 Lagos Avenue, East Legon, Accra, Ghana',
+    recipient: 'Kwame Mensah',
+    orderId: 'ORD-9482-GH',
+    item: 'Emergency Medical Kit & Vaccine Cooler',
     weightKg: 1.45,
     dropZoneType: selectedZone
   };

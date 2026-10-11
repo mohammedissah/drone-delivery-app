@@ -1,48 +1,48 @@
 // Autonomous Drone Flight Physics & Mission Simulator
 
 export const SKYPORT_COORDINATES = {
-  name: "SkyPort Hub Alpha (Central Depot)",
-  lat: 37.7749,
-  lng: -122.4194,
-  alt: 12.0 // Pad elevation meters
+  name: "AeroDrop SkyPort Hub Accra (Kotoka Base)",
+  lat: 5.6037,
+  lng: -0.1670,
+  alt: 15.0 // Pad elevation meters
 };
 
 export const DEFAULT_CUSTOMER_DESTINATION = {
-  name: "Customer Drop Pad (Backyard)",
-  address: "742 Evergreen Terr, Sector 4",
-  recipient: "Elena Rostova",
-  orderId: "ORD-9482-EXP",
-  item: "Emergency Medical Kit & Sensor",
+  name: "Customer Drop Pad (East Legon)",
+  address: "14 Lagos Avenue, East Legon, Accra, Ghana",
+  recipient: "Kwame Mensah",
+  orderId: "ORD-9482-GH",
+  item: "Emergency Medical Kit & Vaccine Cooler",
   weightKg: 1.45,
-  lat: 37.7865,
-  lng: -122.4055,
-  dropZoneType: "Backyard Lawn"
+  lat: 5.6360,
+  lng: -0.1550,
+  dropZoneType: "Residential Courtyard"
 };
 
 export const NO_FLY_ZONES = [
   {
     id: "NFZ-01",
-    name: "St. Luke Heliport Corridor",
-    lat: 37.7680,
-    lng: -122.4140,
-    radius: 350, // meters
-    reason: "Hospital Emergency Airspace (FAA Class D)"
+    name: "Kotoka International Active Runway Zone",
+    lat: 5.6055,
+    lng: -0.1645,
+    radius: 400, // meters
+    reason: "Commercial Aviation Runway (GCAA Class A Airspace)"
   },
   {
     id: "NFZ-02",
-    name: "City Hall Radio Tower",
-    lat: 37.7792,
-    lng: -122.4191,
-    radius: 280,
-    reason: "High RF Interference & Municipal Security"
+    name: "Jubilee House Presidential Air Corridor",
+    lat: 5.5815,
+    lng: -0.1885,
+    radius: 350,
+    reason: "State Security & Executive Airspace Restriction"
   },
   {
     id: "NFZ-03",
-    name: "Embarcadero High-Rise Air Corridor",
-    lat: 37.7940,
-    lng: -122.4000,
-    radius: 400,
-    reason: "Building Turbulence & Glider Zone"
+    name: "Burma Camp Military Command Air Corridor",
+    lat: 5.5920,
+    lng: -0.1420,
+    radius: 380,
+    reason: "Ghana Armed Forces Air Operations Zone"
   }
 ];
 
@@ -69,7 +69,7 @@ export const INITIAL_DRONES = [
     gpsSats: 22,
     rtkFix: "RTK FIXED (±1.5cm)",
     tetherLengthM: 0,
-    windVector: { speed: 12, direction: "NW" },
+    windVector: { speed: 12, direction: "SW" },
     phase: "IDLE",
     progress: 0,
     order: DEFAULT_CUSTOMER_DESTINATION,
@@ -92,12 +92,12 @@ export const INITIAL_DRONES = [
     headingDeg: 180,
     pitchDeg: 0,
     rollDeg: 0,
-    lat: 37.7745,
-    lng: -122.4188,
+    lat: 5.6033,
+    lng: -0.1664,
     gpsSats: 20,
     rtkFix: "RTK FIXED (±1.8cm)",
     tetherLengthM: 0,
-    windVector: { speed: 14, direction: "NW" },
+    windVector: { speed: 14, direction: "SW" },
     phase: "IDLE",
     progress: 0,
     order: null,
@@ -120,12 +120,12 @@ export const INITIAL_DRONES = [
     headingDeg: 0,
     pitchDeg: 0,
     rollDeg: 0,
-    lat: 37.7752,
-    lng: -122.4200,
+    lat: 5.6041,
+    lng: -0.1676,
     gpsSats: 24,
     rtkFix: "RTK FIXED (±1.2cm)",
     tetherLengthM: 0,
-    windVector: { speed: 11, direction: "NW" },
+    windVector: { speed: 11, direction: "SW" },
     phase: "IDLE",
     progress: 0,
     order: null,

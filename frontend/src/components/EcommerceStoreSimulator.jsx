@@ -50,9 +50,9 @@ const SAMPLE_PRODUCTS = [
 ];
 
 export const SAMPLE_DESTINATIONS = [
-  { name: 'Elena Rostova (Residential Backyard)', address: '742 Evergreen Terr, Sector 4', lat: 37.7865, lng: -122.4055, type: 'Backyard Lawn' },
-  { name: 'Marcus Vance (Financial District Rooftop)', address: '555 California St, Suite 22', lat: 37.7925, lng: -122.4035, type: 'Rooftop Deck' },
-  { name: 'Dr. Sarah Lin (Bay Medical Clinic)', address: '1301 Mission St, Emergency Dock', lat: 37.7760, lng: -122.4150, type: 'Driveway Pad' }
+  { name: 'Kwame Mensah (East Legon Courtyard)', address: '14 Lagos Avenue, East Legon, Accra', lat: 5.6360, lng: -0.1550, type: 'Residential Courtyard' },
+  { name: 'Abena Osei (Cantonments Embassy Hub)', address: '8 Switchback Road, Cantonments, Accra', lat: 5.5800, lng: -0.1780, type: 'Rooftop Helipad' },
+  { name: 'Dr. Kojo Boateng (37 Military Hospital)', address: 'Liberation Road, Neghelli Wing, Accra', lat: 5.5890, lng: -0.1830, type: 'Emergency Heli-Pad Dock' }
 ];
 
 export default function EcommerceStoreSimulator({ onDispatchOrder, onSwitchView }) {

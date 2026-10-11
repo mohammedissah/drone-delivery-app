@@ -25,8 +25,8 @@ export default function App() {
   const [flightLogs, setFlightLogs] = useState([
     { timestamp: '05:58:12 UTC', text: 'MAVLink telemetry link online via 5G satellite', type: 'info' },
     { timestamp: '05:58:18 UTC', text: 'RTK centimeter positioning fix locked (22 satellites)', type: 'info' },
-    { timestamp: '05:58:24 UTC', text: 'Airspace corridor SF-ALPHA approved by FAA automated UTM', type: 'success' },
-    { timestamp: '05:58:30 UTC', text: 'Multi-Drone Launch Pad Induction Docks online (Pads Alpha, Bravo, Gamma)', type: 'info' }
+    { timestamp: '05:58:24 UTC', text: 'Airspace corridor ACCRA-ALPHA approved by GCAA automated UTM', type: 'success' },
+    { timestamp: '05:58:30 UTC', text: 'Kotoka SkyPort Induction Docks online (Pads Alpha, Bravo, Gamma)', type: 'info' }
   ]);
 
   const backendClientRef = useRef(null);
@@ -337,33 +337,33 @@ export default function App() {
       const sampleOrders = [
         {
           orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-EMERG`,
-          recipient: "Dr. Sarah Lin (Bay Clinic)",
-          address: "1301 Mission St, Emergency Wing",
+          recipient: "Dr. Kojo Boateng (37 Military Hospital)",
+          address: "Liberation Road, Neghelli Wing, Accra",
           item: "Automated External Defibrillator & Adrenaline",
           weightKg: 1.8,
-          lat: 37.7760,
-          lng: -122.4150,
-          dropZoneType: "Driveway Pad"
+          lat: 5.5890,
+          lng: -0.1830,
+          dropZoneType: "Emergency Heli-Pad Dock"
         },
         {
           orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-TECH`,
-          recipient: "Marcus Vance (SOMA Towers)",
-          address: "555 California St, Suite 22",
+          recipient: "Abena Osei (Cantonments Embassy Hub)",
+          address: "8 Switchback Road, Cantonments, Accra",
           item: "Flagship Drone Sensor & Battery Spares",
           weightKg: 1.2,
-          lat: 37.7925,
-          lng: -122.4035,
-          dropZoneType: "Rooftop Deck"
+          lat: 5.5800,
+          lng: -0.1780,
+          dropZoneType: "Rooftop Helipad"
         },
         {
           orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-MED`,
-          recipient: "Elena Rostova (Residential)",
-          address: "742 Evergreen Terr, Sector 4",
+          recipient: "Kwame Mensah (Residential Courtyard)",
+          address: "14 Lagos Avenue, East Legon, Accra",
           item: "Insulated Vaccine Cooler Box",
           weightKg: 2.1,
-          lat: 37.7865,
-          lng: -122.4055,
-          dropZoneType: "Backyard Lawn"
+          lat: 5.6360,
+          lng: -0.1550,
+          dropZoneType: "Residential Courtyard"
         }
       ];
 
@@ -378,20 +378,20 @@ export default function App() {
         altitudeMeters: 0,
         speedKmh: 0
       })));
-      addLog('Batch Fleet Dispatch: All 3 drones launched concurrently on individual flight corridors!', 'success');
+      addLog('Batch Fleet Dispatch: All 3 drones launched concurrently on Accra flight corridors!', 'success');
     }
   };
 
   const handleEnqueueOrder = (customOrder) => {
     const newOrder = customOrder || {
       orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-PRIO`,
-      recipient: "SF Paramedic Quick Response Unit",
-      address: "Civic Center Plaza East Wing",
+      recipient: "Ridge Hospital Trauma Care Unit",
+      address: "Castle Road, Ridge, Accra, Ghana",
       item: "Emergency Cold-Chain Plasma Units",
       weightKg: 1.6,
-      lat: 37.7795,
-      lng: -122.4175,
-      dropZoneType: "Landing Mat"
+      lat: 5.5580,
+      lng: -0.1980,
+      dropZoneType: "Hospital Emergency Pad"
     };
     setOrderQueue(prev => [...prev, newOrder]);
     addLog(`Order ${newOrder.orderId} enqueued in Autonomous Dispatch Queue.`, 'info');

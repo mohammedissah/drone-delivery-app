@@ -132,14 +132,14 @@ POST http://localhost:3001/api/webhooks/orders
 Content-Type: application/json
 
 {
-  "orderId": "ORD-9482-EXP",
-  "recipient": "Elena Rostova",
-  "address": "742 Evergreen Terr, Sector 4",
-  "item": "Emergency Medical Kit & Sensor",
-  "weightKg": 1.45,
-  "lat": 37.7865,
-  "lng": -122.4055,
-  "dropZoneType": "Backyard Lawn"
+  "orderId": "ORD-9482-GH",
+  "recipient": "Kwame Mensah",
+  "address": "14 Lagos Avenue, East Legon, Accra, Ghana",
+  "item": "Emergency Medical Kit & Vaccine Cooler",
+  "weightKg: 1.45,
+  "lat": 5.6360,
+  "lng": -0.1550,
+  "dropZoneType": "Residential Courtyard"
 }
 ```
 
