@@ -3,11 +3,14 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { connectDB, isDbConnected } from './config/db.js';
 import { Order } from './models/Order.js';
 import { FlightLog } from './models/FlightLog.js';
 
-dotenv.config();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -15,10 +18,10 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Connect to MongoDB
+// Connect to MongoDB Atlas Cloud
 connectDB();
 
-// In-Memory Database & State (Syncs with MongoDB)
+// Global SkyPort Central Hub Coordinates & Pads
 const SKYPORT_COORDINATES = {
   name: "SkyPort Hub Alpha (Central Depot)",
   lat: 37.7749,
@@ -32,12 +35,16 @@ const NO_FLY_ZONES = [
   { id: "NFZ-03", name: "Embarcadero High-Rise Air Corridor", lat: 37.7940, lng: -122.4000, radius: 400 }
 ];
 
+// Active Autonomous Drone Fleet
 let drones = [
   {
     id: "AERO-X1",
     callsign: "Falcon-One",
     model: "AeroDrop Hexacopter Mk-IV",
     status: "READY",
+    dockPad: "PAD-ALPHA (Fast Induction)",
+    isCharging: false,
+    maxPayloadKg: 2.5,
     battery: 98,
     voltage: 25.2,
     speedKmh: 0,
@@ -70,9 +77,12 @@ let drones = [
     id: "AERO-X2",
     callsign: "Valkyrie-Two",
     model: "AeroDrop VTOL Cruiser",
-    status: "STANDBY",
-    battery: 88,
-    voltage: 24.8,
+    status: "DOCKED",
+    dockPad: "PAD-BRAVO (Fast Induction)",
+    isCharging: true,
+    maxPayloadKg: 1.8,
+    battery: 72,
+    voltage: 24.1,
     speedKmh: 0,
     targetSpeed: 55,
     altitudeMeters: 0,
@@ -94,9 +104,12 @@ let drones = [
     id: "AERO-X3",
     callsign: "Peregrine-Three",
     model: "AeroDrop Heavy-Lift Octo",
-    status: "STANDBY",
-    battery: 100,
-    voltage: 25.4,
+    status: "DOCKED",
+    dockPad: "PAD-GAMMA (Solar Induction)",
+    isCharging: true,
+    maxPayloadKg: 3.2,
+    battery: 88,
+    voltage: 24.8,
     speedKmh: 0,
     targetSpeed: 40,
     altitudeMeters: 0,
@@ -116,10 +129,13 @@ let drones = [
   }
 ];
 
+// Multi-Order Autonomous Dispatch Queue
+let orderQueue = [];
+
 let flightLogs = [
   { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'Backend MAVLink & Telemetry Gateway online on Port 3001', type: 'info' },
   { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'WebSocket server broadcast channel active', type: 'info' },
-  { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'MongoDB connection manager initialized', type: 'success' }
+  { timestamp: new Date().toISOString().slice(11, 19) + ' UTC', text: 'Multi-Drone Dispatch Queue & Induction Charger system online', type: 'success' }
 ];
 
 async function addLog(text, type = 'info', droneId = null) {
@@ -127,7 +143,6 @@ async function addLog(text, type = 'info', droneId = null) {
   flightLogs.unshift({ timestamp, text, type });
   if (flightLogs.length > 50) flightLogs.pop();
 
-  // Persist to MongoDB
   if (isDbConnected()) {
     try {
       await FlightLog.create({ timestamp, text, type, droneId });
@@ -179,6 +194,7 @@ wss.on('connection', (ws) => {
   ws.send(JSON.stringify({
     type: 'INIT_STATE',
     drones,
+    orderQueue,
     flightLogs,
     noFlyZones: NO_FLY_ZONES,
     skyport: SKYPORT_COORDINATES,
@@ -186,14 +202,50 @@ wss.on('connection', (ws) => {
   }));
 });
 
-// Authoritative Backend Simulation Loop
+// Authoritative Backend Simulation Loop (Synchronizes All Drones Simultaneously)
 setInterval(() => {
   let hasStateChanged = false;
 
   drones = drones.map(drone => {
     let updated = { ...drone };
 
-    switch (drone.phase) {
+    // 1. Launch Pad Induction Recharging Simulation
+    if (updated.phase === 'IDLE' || updated.phase === 'DELIVERED') {
+      updated.isCharging = true;
+      if (updated.battery < 100) {
+        hasStateChanged = true;
+        updated.battery = Math.min(100, parseFloat((updated.battery + 0.35).toFixed(1)));
+        updated.voltage = parseFloat((21.0 + (updated.battery / 100) * 4.4).toFixed(1));
+      }
+
+      // Check if there are orders waiting in the queue & drone has sufficient battery (>= 50%)
+      if (orderQueue.length > 0 && updated.battery >= 50 && (!updated.order || updated.phase === 'DELIVERED')) {
+        const nextOrder = orderQueue.shift();
+        updated.order = nextOrder;
+        updated.phase = 'TAKEOFF';
+        updated.progress = 5;
+        updated.isCharging = false;
+        updated.lat = SKYPORT_COORDINATES.lat;
+        updated.lng = SKYPORT_COORDINATES.lng;
+        updated.altitudeMeters = 0;
+        updated.speedKmh = 0;
+        hasStateChanged = true;
+
+        addLog(`Automated Scheduler assigned queued order ${nextOrder.orderId} to ${updated.callsign}. Drone departing ${updated.dockPad}!`, 'success', updated.id);
+
+        if (isDbConnected()) {
+          Order.findOneAndUpdate(
+            { orderId: nextOrder.orderId },
+            { status: 'AIRBORNE', assignedDrone: updated.id }
+          ).catch(() => {});
+        }
+      }
+    } else {
+      updated.isCharging = false;
+    }
+
+    // 2. Flight Dynamics Loop
+    switch (updated.phase) {
       case 'TAKEOFF': {
         hasStateChanged = true;
         if (updated.altitudeMeters < updated.targetAltitude) {
@@ -201,35 +253,35 @@ setInterval(() => {
           updated.pitchDeg = 4.5;
           updated.rollDeg = (Math.random() - 0.5) * 1.5;
           updated.speedKmh = 14;
-          updated.battery = Math.max(0, updated.battery - 0.05);
+          updated.battery = Math.max(0, parseFloat((updated.battery - 0.05).toFixed(2)));
         } else {
           updated.altitudeMeters = updated.targetAltitude;
           updated.phase = 'EN_ROUTE';
           updated.pitchDeg = 1.0;
-          addLog(`${drone.callsign} reached cruising altitude 65m. Transiting flight corridor.`, 'success', drone.id);
+          addLog(`${updated.callsign} reached cruising altitude 65m. Transiting flight corridor.`, 'success', updated.id);
         }
         break;
       }
 
       case 'EN_ROUTE': {
         hasStateChanged = true;
-        if (!drone.order) break;
-        const dest = drone.order;
-        const dist = calculateDistanceMeters(drone.lat, drone.lng, dest.lat, dest.lng);
+        if (!updated.order) break;
+        const dest = updated.order;
+        const dist = calculateDistanceMeters(updated.lat, updated.lng, dest.lat, dest.lng);
 
         if (dist > 40) {
           const step = 0.00016;
-          const latDiff = dest.lat - drone.lat;
-          const lngDiff = dest.lng - drone.lng;
+          const latDiff = dest.lat - updated.lat;
+          const lngDiff = dest.lng - updated.lng;
           const angle = Math.atan2(lngDiff, latDiff);
 
           updated.lat += Math.cos(angle) * step;
           updated.lng += Math.sin(angle) * step;
           updated.speedKmh = 48 + (Math.random() - 0.5) * 3;
-          updated.headingDeg = calculateBearing(drone.lat, drone.lng, dest.lat, dest.lng);
+          updated.headingDeg = calculateBearing(updated.lat, updated.lng, dest.lat, dest.lng);
           updated.pitchDeg = 1.2;
           updated.rollDeg = Math.sin(Date.now() / 1500) * 3.5;
-          updated.battery = Math.max(0, updated.battery - 0.08);
+          updated.battery = Math.max(0, parseFloat((updated.battery - 0.08).toFixed(2)));
 
           const totalDist = calculateDistanceMeters(SKYPORT_COORDINATES.lat, SKYPORT_COORDINATES.lng, dest.lat, dest.lng);
           updated.progress = Math.min(85, Math.max(10, ((totalDist - dist) / totalDist) * 85));
@@ -239,7 +291,7 @@ setInterval(() => {
           updated.pitchDeg = 0;
           updated.rollDeg = 0;
           updated.progress = 85;
-          addLog(`${drone.callsign} arrived over drop zone (${dest.address}). Hovering at 25m.`, 'success', drone.id);
+          addLog(`${updated.callsign} arrived over drop zone (${dest.address}). Hovering at 25m.`, 'success', updated.id);
         }
         break;
       }
@@ -261,10 +313,10 @@ setInterval(() => {
           updated.tetherLengthM = 22;
           updated.phase = 'PACKAGE_RELEASED';
           updated.progress = 96;
-          addLog(`Ground sensors detected touchdown! Smart-latch released payload safely.`, 'success', drone.id);
+          addLog(`Ground sensors detected touchdown! Smart-latch released payload safely.`, 'success', updated.id);
 
           setTimeout(() => {
-            const d = drones.find(item => item.id === drone.id);
+            const d = drones.find(item => item.id === updated.id);
             if (d && d.phase === 'PACKAGE_RELEASED') {
               d.phase = 'WINCH_RETRACT';
             }
@@ -280,29 +332,29 @@ setInterval(() => {
         } else {
           updated.tetherLengthM = 0;
           updated.phase = 'RETURN_TO_HOME';
-          addLog(`Tether retracted to belly. Auto Return-to-Home trajectory active.`, 'info', drone.id);
+          addLog(`Tether retracted to belly. Auto Return-to-Home trajectory active.`, 'info', updated.id);
         }
         break;
       }
 
       case 'RETURN_TO_HOME': {
         hasStateChanged = true;
-        const dist = calculateDistanceMeters(drone.lat, drone.lng, SKYPORT_COORDINATES.lat, SKYPORT_COORDINATES.lng);
+        const dist = calculateDistanceMeters(updated.lat, updated.lng, SKYPORT_COORDINATES.lat, SKYPORT_COORDINATES.lng);
 
         if (dist > 30) {
           const step = 0.00018;
-          const latDiff = SKYPORT_COORDINATES.lat - drone.lat;
-          const lngDiff = SKYPORT_COORDINATES.lng - drone.lng;
+          const latDiff = SKYPORT_COORDINATES.lat - updated.lat;
+          const lngDiff = SKYPORT_COORDINATES.lng - updated.lng;
           const angle = Math.atan2(lngDiff, latDiff);
 
           updated.lat += Math.cos(angle) * step;
           updated.lng += Math.sin(angle) * step;
           updated.speedKmh = 52 + (Math.random() - 0.5) * 2;
-          updated.headingDeg = calculateBearing(drone.lat, drone.lng, SKYPORT_COORDINATES.lat, SKYPORT_COORDINATES.lng);
+          updated.headingDeg = calculateBearing(updated.lat, updated.lng, SKYPORT_COORDINATES.lat, SKYPORT_COORDINATES.lng);
           updated.altitudeMeters = 65;
           updated.pitchDeg = -1.5;
           updated.rollDeg = Math.sin(Date.now() / 1500) * 3;
-          updated.battery = Math.max(0, updated.battery - 0.08);
+          updated.battery = Math.max(0, parseFloat((updated.battery - 0.08).toFixed(2)));
           updated.progress = 98;
         } else {
           if (updated.altitudeMeters > 0.5) {
@@ -313,12 +365,12 @@ setInterval(() => {
             updated.speedKmh = 0;
             updated.phase = 'DELIVERED';
             updated.progress = 100;
-            addLog(`${drone.callsign} touchdown on SkyPort Launch Pad Alpha.`, 'success', drone.id);
+            addLog(`${updated.callsign} touchdown on ${updated.dockPad}. Auto-docked with induction charger.`, 'success', updated.id);
 
             // Update order status in MongoDB
-            if (drone.order && isDbConnected()) {
+            if (updated.order && isDbConnected()) {
               Order.findOneAndUpdate(
-                { orderId: drone.order.orderId },
+                { orderId: updated.order.orderId },
                 { status: 'DELIVERED', deliveredAt: new Date() }
               ).catch(() => {});
             }
@@ -338,6 +390,7 @@ setInterval(() => {
     broadcast({
       type: 'TELEMETRY_UPDATE',
       drones,
+      orderQueue,
       flightLogs,
       mongoConnected: isDbConnected()
     });
@@ -356,12 +409,18 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 2. Get Fleet Telemetry
+// 2. Get Fleet Telemetry & Queue
 app.get('/api/fleet', (req, res) => {
-  res.json({ drones, flightLogs, skyport: SKYPORT_COORDINATES, mongoConnected: isDbConnected() });
+  res.json({
+    drones,
+    orderQueue,
+    flightLogs,
+    skyport: SKYPORT_COORDINATES,
+    mongoConnected: isDbConnected()
+  });
 });
 
-// 3. E-Commerce Order Webhook Endpoint (Persists to MongoDB)
+// 3. E-Commerce Order Webhook Endpoint
 app.post('/api/webhooks/orders', async (req, res) => {
   const { orderId, recipient, address, item, weightKg, lat, lng, dropZoneType } = req.body;
 
@@ -369,11 +428,9 @@ app.post('/api/webhooks/orders', async (req, res) => {
     return res.status(400).json({ error: 'Missing mandatory order fields (orderId, item, lat, lng)' });
   }
 
-  if (weightKg > 2.5) {
-    return res.status(400).json({ error: `Payload mass (${weightKg}kg) exceeds drone payload limit of 2.5kg` });
+  if (weightKg > 3.2) {
+    return res.status(400).json({ error: `Payload mass (${weightKg}kg) exceeds maximum fleet limit of 3.2kg` });
   }
-
-  const drone = drones.find(d => d.phase === 'IDLE' || d.phase === 'DELIVERED') || drones[0];
 
   const orderPayload = {
     orderId,
@@ -384,19 +441,37 @@ app.post('/api/webhooks/orders', async (req, res) => {
     lat: parseFloat(lat),
     lng: parseFloat(lng),
     dropZoneType: dropZoneType || 'Backyard Lawn',
-    status: 'AIRBORNE',
-    assignedDrone: drone.id
+    status: 'PENDING',
+    assignedDrone: null
   };
 
-  drone.order = orderPayload;
-  drone.phase = 'TAKEOFF';
-  drone.progress = 5;
-  drone.lat = SKYPORT_COORDINATES.lat;
-  drone.lng = SKYPORT_COORDINATES.lng;
-  drone.altitudeMeters = 0;
-  drone.speedKmh = 0;
+  // Find an available idle drone with sufficient battery (>= 45%) and matching payload capacity
+  const availableDrone = drones.find(d => 
+    (d.phase === 'IDLE' || d.phase === 'DELIVERED') && 
+    d.battery >= 45 && 
+    d.maxPayloadKg >= orderPayload.weightKg
+  );
 
-  // Save to MongoDB if connected
+  if (availableDrone) {
+    availableDrone.order = orderPayload;
+    availableDrone.phase = 'TAKEOFF';
+    availableDrone.progress = 5;
+    availableDrone.isCharging = false;
+    availableDrone.lat = SKYPORT_COORDINATES.lat;
+    availableDrone.lng = SKYPORT_COORDINATES.lng;
+    availableDrone.altitudeMeters = 0;
+    availableDrone.speedKmh = 0;
+    orderPayload.status = 'AIRBORNE';
+    orderPayload.assignedDrone = availableDrone.id;
+
+    addLog(`Order ${orderId} assigned to ${availableDrone.callsign}. Departing ${availableDrone.dockPad}.`, 'success', availableDrone.id);
+  } else {
+    // Add to automated dispatch queue
+    orderQueue.push(orderPayload);
+    addLog(`All drones busy or charging. Order ${orderId} added to Dispatch Queue (Position #${orderQueue.length}).`, 'info');
+  }
+
+  // Persist to MongoDB
   if (isDbConnected()) {
     try {
       await Order.findOneAndUpdate(
@@ -404,34 +479,102 @@ app.post('/api/webhooks/orders', async (req, res) => {
         orderPayload,
         { upsert: true, new: true }
       );
-      console.log(`🍃 Order ${orderId} saved to MongoDB collection 'orders'`);
     } catch (err) {
       console.warn('MongoDB save warning:', err.message);
     }
   }
 
-  addLog(`E-Commerce Webhook: Order ${orderId} assigned to ${drone.callsign}. Payload: ${item} (${weightKg} kg). Takeoff initiated.`, 'success', drone.id);
-
   broadcast({
     type: 'ORDER_DISPATCHED',
-    droneId: drone.id,
-    order: drone.order,
     drones,
+    orderQueue,
     flightLogs,
     mongoConnected: isDbConnected()
   });
 
   res.status(201).json({
-    status: 'DISPATCHED',
-    assignedDrone: drone.id,
-    callsign: drone.callsign,
+    status: availableDrone ? 'DISPATCHED' : 'QUEUED',
+    assignedDrone: availableDrone ? availableDrone.id : null,
+    queuePosition: availableDrone ? null : orderQueue.length,
     orderId,
-    estimatedFlightMinutes: 4.2,
-    database: isDbConnected() ? 'MongoDB Persisted' : 'Memory'
+    estimatedFlightMinutes: 4.2
   });
 });
 
-// 4. Mission Flight Commands
+// 4. Multi-Drone Batch Order Simulator (Demonstrates Simultaneous Multi-Flight)
+app.post('/api/fleet/simulate-batch', async (req, res) => {
+  const batchOrders = [
+    {
+      orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-EMERG`,
+      recipient: "Dr. Sarah Lin (Bay Clinic)",
+      address: "1301 Mission St, Emergency Wing",
+      item: "Automated External Defibrillator & Adrenaline",
+      weightKg: 1.8,
+      lat: 37.7760,
+      lng: -122.4150,
+      dropZoneType: "Driveway Pad"
+    },
+    {
+      orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-TECH`,
+      recipient: "Marcus Vance (SOMA Towers)",
+      address: "555 California St, Suite 22",
+      item: "Flagship Drone Sensor & Battery Spares",
+      weightKg: 1.2,
+      lat: 37.7925,
+      lng: -122.4035,
+      dropZoneType: "Rooftop Deck"
+    },
+    {
+      orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-MED`,
+      recipient: "Elena Rostova (Residential)",
+      address: "742 Evergreen Terr, Sector 4",
+      item: "Insulated Vaccine Cooler Box",
+      weightKg: 2.1,
+      lat: 37.7865,
+      lng: -122.4055,
+      dropZoneType: "Backyard Lawn"
+    }
+  ];
+
+  // Dispatch orders to drones or queue
+  batchOrders.forEach((orderData, index) => {
+    const drone = drones[index % drones.length];
+    drone.order = orderData;
+    drone.phase = 'TAKEOFF';
+    drone.progress = 5;
+    drone.isCharging = false;
+    drone.lat = SKYPORT_COORDINATES.lat;
+    drone.lng = SKYPORT_COORDINATES.lng;
+    drone.altitudeMeters = 0;
+    drone.speedKmh = 0;
+
+    addLog(`Batch Dispatch: ${drone.callsign} launched for ${orderData.orderId} (${orderData.item})`, 'success', drone.id);
+
+    if (isDbConnected()) {
+      Order.findOneAndUpdate(
+        { orderId: orderData.orderId },
+        { ...orderData, status: 'AIRBORNE', assignedDrone: drone.id },
+        { upsert: true }
+      ).catch(() => {});
+    }
+  });
+
+  broadcast({
+    type: 'BATCH_DISPATCHED',
+    drones,
+    orderQueue,
+    flightLogs,
+    mongoConnected: isDbConnected()
+  });
+
+  res.json({
+    success: true,
+    message: "Batch fleet dispatch triggered for all 3 autonomous drones!",
+    orders: batchOrders
+  });
+});
+
+// 5. Mission Flight Commands
 app.post('/api/missions/launch', (req, res) => {
   const { droneId = 'AERO-X1' } = req.body;
   const drone = drones.find(d => d.id === droneId);
@@ -439,6 +582,7 @@ app.post('/api/missions/launch', (req, res) => {
 
   drone.phase = 'TAKEOFF';
   drone.progress = 5;
+  drone.isCharging = false;
   addLog(`Operator launched ${drone.callsign}. Ascending to flight corridor.`, 'info', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
@@ -504,12 +648,13 @@ app.post('/api/missions/reset', (req, res) => {
   drone.battery = 98;
   drone.progress = 0;
   drone.tetherLengthM = 0;
-  addLog(`${drone.callsign} reset to SkyPort Launch Pad Alpha.`, 'info', drone.id);
+  drone.isCharging = true;
+  addLog(`${drone.callsign} reset to ${drone.dockPad}. Docked for charging.`, 'info', drone.id);
   broadcast({ type: 'COMMAND_ACK', drones, flightLogs });
   res.json({ success: true, drone });
 });
 
-// 5. MongoDB Query Endpoints
+// 6. MongoDB Query Endpoints
 app.get('/api/db/status', async (req, res) => {
   try {
     const connected = isDbConnected();
@@ -518,8 +663,8 @@ app.get('/api/db/status', async (req, res) => {
     res.json({
       connected,
       database: 'aerodrop',
-      host: '127.0.0.1:27017',
-      counts: { orders: orderCount, flightLogs: logCount }
+      host: 'MongoDB Atlas Cloud',
+      counts: { orders: orderCount, flightLogs: logCount, queue: orderQueue.length }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

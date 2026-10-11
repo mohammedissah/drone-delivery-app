@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plane, Radio, Smartphone, ShoppingBag, Volume2, VolumeX, ShieldCheck, Zap } from 'lucide-react';
+import { Plane, Radio, Smartphone, ShoppingBag, BarChart3, Volume2, VolumeX, ShieldCheck, Zap } from 'lucide-react';
 import { sounds } from '../utils/soundEffects';
 
 export default function Navbar({ currentView, setCurrentView, droneStatus, activeDrone }) {
@@ -178,6 +178,32 @@ export default function Navbar({ currentView, setCurrentView, droneStatus, activ
         >
           <ShoppingBag size={16} />
           <span>E-Commerce Storefront</span>
+        </button>
+
+        <button
+          onClick={() => {
+            setCurrentView('analytics');
+            sounds.playRadarPing();
+          }}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 16px',
+            borderRadius: '8px',
+            border: 'none',
+            fontFamily: 'var(--font-display)',
+            fontWeight: 600,
+            fontSize: '0.82rem',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            background: currentView === 'analytics' ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(217, 119, 6, 0.1))' : 'transparent',
+            color: currentView === 'analytics' ? '#fbbf24' : 'var(--text-muted)',
+            boxShadow: currentView === 'analytics' ? '0 0 15px rgba(245, 158, 11, 0.35)' : 'none'
+          }}
+        >
+          <BarChart3 size={16} />
+          <span>Fleet Analytics & ESG</span>
         </button>
       </nav>
 

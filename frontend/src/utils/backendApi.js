@@ -144,4 +144,16 @@ export class DroneBackendClient {
       console.warn('Backend webhook unavailable, using client simulation', e);
     }
   }
+
+  async simulateBatchOrders() {
+    try {
+      const res = await fetch(`${API_BASE}/fleet/simulate-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      return await res.json();
+    } catch (e) {
+      console.warn('Batch dispatch API error', e);
+    }
+  }
 }

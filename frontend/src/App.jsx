@@ -3,6 +3,7 @@ import Navbar from './components/Navbar';
 import FleetMissionControl from './components/FleetMissionControl';
 import CustomerLiveTracker from './components/CustomerLiveTracker';
 import EcommerceStoreSimulator from './components/EcommerceStoreSimulator';
+import FleetAnalytics from './components/FleetAnalytics';
 import { 
   INITIAL_DRONES, 
   SKYPORT_COORDINATES, 
@@ -18,13 +19,14 @@ export default function App() {
   const [currentView, setCurrentView] = useState('mission_control');
   const [drones, setDrones] = useState(INITIAL_DRONES);
   const [activeDroneId, setActiveDroneId] = useState('AERO-X1');
+  const [orderQueue, setOrderQueue] = useState([]);
   const [backendConnected, setBackendConnected] = useState(false);
   const [mongoConnected, setMongoConnected] = useState(false);
   const [flightLogs, setFlightLogs] = useState([
     { timestamp: '05:58:12 UTC', text: 'MAVLink telemetry link online via 5G satellite', type: 'info' },
     { timestamp: '05:58:18 UTC', text: 'RTK centimeter positioning fix locked (22 satellites)', type: 'info' },
     { timestamp: '05:58:24 UTC', text: 'Airspace corridor SF-ALPHA approved by FAA automated UTM', type: 'success' },
-    { timestamp: '05:58:30 UTC', text: 'Hexacopter AERO-X1 initialized on SkyPort Pad 1', type: 'info' }
+    { timestamp: '05:58:30 UTC', text: 'Multi-Drone Launch Pad Induction Docks online (Pads Alpha, Bravo, Gamma)', type: 'info' }
   ]);
 
   const backendClientRef = useRef(null);
@@ -33,12 +35,15 @@ export default function App() {
   useEffect(() => {
     const client = new DroneBackendClient(
       (message) => {
-        if (message.type === 'INIT_STATE' || message.type === 'TELEMETRY_UPDATE' || message.type === 'ORDER_DISPATCHED' || message.type === 'COMMAND_ACK') {
+        if (message.type === 'INIT_STATE' || message.type === 'TELEMETRY_UPDATE' || message.type === 'ORDER_DISPATCHED' || message.type === 'BATCH_DISPATCHED' || message.type === 'COMMAND_ACK') {
           if (message.drones) {
             setDrones(message.drones);
           }
           if (message.flightLogs) {
             setFlightLogs(message.flightLogs);
+          }
+          if (message.orderQueue) {
+            setOrderQueue(message.orderQueue);
           }
           if (typeof message.mongoConnected === 'boolean') {
             setMongoConnected(message.mongoConnected);
@@ -74,9 +79,31 @@ export default function App() {
     const timer = setInterval(() => {
       setDrones(prevDrones => {
         return prevDrones.map(drone => {
-          if (drone.id !== activeDroneId) return drone;
-
           let updated = { ...drone };
+
+          // 1. Launch pad induction charging
+          if (updated.phase === 'IDLE' || updated.phase === 'DELIVERED') {
+            updated.isCharging = true;
+            if (updated.battery < 100) {
+              updated.battery = Math.min(100, parseFloat((updated.battery + 0.35).toFixed(1)));
+              updated.voltage = parseFloat((21.0 + (updated.battery / 100) * 4.4).toFixed(1));
+            }
+
+            // Check if queue has orders and drone is charged >= 50%
+            if (orderQueue.length > 0 && updated.battery >= 50 && (!updated.order || updated.phase === 'DELIVERED')) {
+              const nextOrder = orderQueue[0];
+              setOrderQueue(q => q.slice(1));
+              updated.order = nextOrder;
+              updated.phase = 'TAKEOFF';
+              updated.progress = 5;
+              updated.isCharging = false;
+              updated.lat = SKYPORT_COORDINATES.lat;
+              updated.lng = SKYPORT_COORDINATES.lng;
+              updated.altitudeMeters = 0;
+              updated.speedKmh = 0;
+              addLog(`Automated Scheduler assigned queued order ${nextOrder.orderId} to ${updated.callsign}!`, 'success');
+            }
+          }
 
           switch (drone.phase) {
             case 'TAKEOFF': {
@@ -142,7 +169,7 @@ export default function App() {
                 updated.tetherLengthM = 22;
                 updated.phase = 'PACKAGE_RELEASED';
                 updated.progress = 96;
-                addLog(`Touchdown sensor confirmed ground contact. Smart-latch released payload safely!`, 'success');
+                addLog(`Touchdown sensor confirmed ground contact for ${drone.callsign}. Smart-latch released payload safely!`, 'success');
               }
               break;
             }
@@ -162,7 +189,7 @@ export default function App() {
               } else {
                 updated.tetherLengthM = 0;
                 updated.phase = 'RETURN_TO_HOME';
-                addLog(`Tether fully reeled in. Initializing autonomous Return-to-Home trajectory.`, 'info');
+                addLog(`${drone.callsign} tether reeled in. Initializing autonomous Return-to-Home trajectory.`, 'info');
               }
               break;
             }
@@ -194,7 +221,7 @@ export default function App() {
                   updated.speedKmh = 0;
                   updated.phase = 'DELIVERED';
                   updated.progress = 100;
-                  addLog(`${drone.callsign} touchdown on SkyPort Pad Alpha. Docking with high-speed induction charger.`, 'success');
+                  addLog(`${drone.callsign} touchdown on ${updated.dockPad || 'SkyPort Pad'}. Auto-docked with induction charger.`, 'success');
                 }
               }
               break;
@@ -210,15 +237,15 @@ export default function App() {
     }, 300);
 
     return () => clearInterval(timer);
-  }, [activeDroneId, backendConnected]);
+  }, [backendConnected, orderQueue]);
 
   // Actions connecting to Backend API with fallback
   const handleLaunchMission = () => {
     if (backendConnected && backendClientRef.current) {
       backendClientRef.current.sendLaunch(activeDroneId);
     } else {
-      setDrones(prev => prev.map(d => d.id === activeDroneId ? { ...d, phase: 'TAKEOFF', progress: 5, targetAltitude: 65 } : d));
-      addLog(`Takeoff authorized by Operator. Ascending to 65m corridor.`, 'info');
+      setDrones(prev => prev.map(d => d.id === activeDroneId ? { ...d, phase: 'TAKEOFF', progress: 5, targetAltitude: 65, isCharging: false } : d));
+      addLog(`Takeoff authorized by Operator for ${activeDrone.callsign}. Ascending to 65m corridor.`, 'info');
     }
   };
 
@@ -273,7 +300,7 @@ export default function App() {
         progress: 0,
         tetherLengthM: 0
       } : d));
-      addLog(`${activeDrone.callsign} reset to SkyPort Launch Pad Alpha.`, 'info');
+      addLog(`${activeDrone.callsign} reset to SkyPort Launch Pad.`, 'info');
     }
   };
 
@@ -281,19 +308,93 @@ export default function App() {
     if (backendConnected && backendClientRef.current) {
       backendClientRef.current.dispatchEcommerceOrder(newOrder);
     } else {
-      setDrones(prev => prev.map(d => d.id === activeDroneId ? {
-        ...d,
-        order: newOrder,
+      const freeDrone = drones.find(d => d.phase === 'IDLE' || d.phase === 'DELIVERED');
+      if (freeDrone) {
+        setDrones(prev => prev.map(d => d.id === freeDrone.id ? {
+          ...d,
+          order: newOrder,
+          phase: 'TAKEOFF',
+          progress: 5,
+          isCharging: false,
+          lat: SKYPORT_COORDINATES.lat,
+          lng: SKYPORT_COORDINATES.lng,
+          altitudeMeters: 0,
+          speedKmh: 0,
+          battery: Math.max(80, d.battery)
+        } : d));
+        addLog(`E-Commerce Order (${newOrder.orderId}) dispatched to ${freeDrone.callsign}!`, 'success');
+      } else {
+        setOrderQueue(prev => [...prev, newOrder]);
+        addLog(`All drones airborne. Order (${newOrder.orderId}) queued for next available launch pad.`, 'info');
+      }
+    }
+  };
+
+  const handleSimulateBatch = async () => {
+    if (backendConnected && backendClientRef.current) {
+      await backendClientRef.current.simulateBatchOrders();
+    } else {
+      const sampleOrders = [
+        {
+          orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-EMERG`,
+          recipient: "Dr. Sarah Lin (Bay Clinic)",
+          address: "1301 Mission St, Emergency Wing",
+          item: "Automated External Defibrillator & Adrenaline",
+          weightKg: 1.8,
+          lat: 37.7760,
+          lng: -122.4150,
+          dropZoneType: "Driveway Pad"
+        },
+        {
+          orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-TECH`,
+          recipient: "Marcus Vance (SOMA Towers)",
+          address: "555 California St, Suite 22",
+          item: "Flagship Drone Sensor & Battery Spares",
+          weightKg: 1.2,
+          lat: 37.7925,
+          lng: -122.4035,
+          dropZoneType: "Rooftop Deck"
+        },
+        {
+          orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-MED`,
+          recipient: "Elena Rostova (Residential)",
+          address: "742 Evergreen Terr, Sector 4",
+          item: "Insulated Vaccine Cooler Box",
+          weightKg: 2.1,
+          lat: 37.7865,
+          lng: -122.4055,
+          dropZoneType: "Backyard Lawn"
+        }
+      ];
+
+      setDrones(prev => prev.map((drone, idx) => ({
+        ...drone,
+        order: sampleOrders[idx % sampleOrders.length],
         phase: 'TAKEOFF',
         progress: 5,
+        isCharging: false,
         lat: SKYPORT_COORDINATES.lat,
         lng: SKYPORT_COORDINATES.lng,
         altitudeMeters: 0,
-        speedKmh: 0,
-        battery: 99
-      } : d));
-      addLog(`New E-Commerce Order received (${newOrder.orderId})! Dispatched to flight corridor.`, 'success');
+        speedKmh: 0
+      })));
+      addLog('Batch Fleet Dispatch: All 3 drones launched concurrently on individual flight corridors!', 'success');
     }
+  };
+
+  const handleEnqueueOrder = (customOrder) => {
+    const newOrder = customOrder || {
+      orderId: `ORD-${Math.floor(1000 + Math.random() * 9000)}-PRIO`,
+      recipient: "SF Paramedic Quick Response Unit",
+      address: "Civic Center Plaza East Wing",
+      item: "Emergency Cold-Chain Plasma Units",
+      weightKg: 1.6,
+      lat: 37.7795,
+      lng: -122.4175,
+      dropZoneType: "Landing Mat"
+    };
+    setOrderQueue(prev => [...prev, newOrder]);
+    addLog(`Order ${newOrder.orderId} enqueued in Autonomous Dispatch Queue.`, 'info');
   };
 
   return (
@@ -347,6 +448,9 @@ export default function App() {
             onResetDrone={handleResetDrone}
             flightPath={flightPath}
             flightLogs={flightLogs}
+            orderQueue={orderQueue}
+            onSimulateBatch={handleSimulateBatch}
+            onEnqueueOrder={handleEnqueueOrder}
           />
         )}
 
@@ -362,6 +466,13 @@ export default function App() {
           <EcommerceStoreSimulator
             onDispatchOrder={handleDispatchEcommerceOrder}
             onSwitchView={setCurrentView}
+          />
+        )}
+
+        {currentView === 'analytics' && (
+          <FleetAnalytics
+            drones={drones}
+            flightLogs={flightLogs}
           />
         )}
       </main>
